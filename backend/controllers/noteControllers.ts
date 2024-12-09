@@ -3,62 +3,69 @@ import prisma from '../db/prisma';
 import z from 'zod';
 import fs from 'fs';
 import cloudinary  from 'cloudinary';
+import { Request } from 'express';
 
+interface Note {
+    title: string;
+    description: string;
+    authorId: number;
+    image?: string;
+    latitude: number;
+    longitude: number;
+}
 
-
-export const createNote = asyncHandler(
-    async (req, res) => {
-        const schema = z.object({
-            title: z.string(),
-            description: z.string(),
-            authorId: z.number(),
-            location : z.object({
-                latitude : z.number(),
-                longitude : z.number()
-            }),
-        })
-        let note
-
-        const {title , description , authorId , location } = schema.parse(req.body);
-        let result
-        if(req.file){
-        const filePath = req.file.path
-
+export const createNote = asyncHandler(async (req : Request, res : any) => {
+    const schema = z.object({
+      title: z.string(),
+      description: z.string(),
+      authorId: z.number(),
+      location: z.object({
+        latitude: z.number(),
+        longitude: z.number(),
+      }),
+    });
+  
+    // Validate the request body
+    const { title, description, authorId, location } = schema.parse(req.body);
+  
+    let noteData: Note = {
+      title,
+      description,
+      authorId,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    };
+  
+    // Handle file upload if a file exists
+    if (req.file) {
+      try {
+        const filePath = req.file.path;
+  
         // Upload to Cloudinary
-         result = await cloudinary.v2.uploader.upload(filePath, {
+        const result = await cloudinary.v2.uploader.upload(filePath, {
           folder: "uploads",
         });
-    
+  
         // Remove file from local storage
         fs.unlinkSync(filePath);
-
-
-        note = await prisma.notes.create({
-            data:{
-                title,description ,
-                authorId,
-                latitude : location.latitude,
-                longitude : location.longitude, 
-                image : result.secure_url               
-            }
-        });
-        return res.status(201).json(note);
-
+  
+        // Add image URL to the note data
+        noteData = {...noteData , image: result.secure_url};
+      } catch (error) {
+        return res.status(500).json({ error: "File upload failed", details: error });
+      }
     }
+  
+    // Create the note
+    const note = await prisma.notes.create({
+      data: noteData,
+    });
+  
+    // Return the created note
+     res.status(201).json(note);
+  });
 
-        
-        note = await prisma.notes.create({
-            data:{
-                title,description ,
-                authorId,
-                latitude : location.latitude,
-                longitude : location.longitude, 
-            }
-        });
-            res.status(201).json(note);
-        
-    }
-)
+
 
 export const getNotes = asyncHandler(
     async (req, res) => {

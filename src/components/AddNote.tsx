@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ReactMapGl, { Layer, Marker, Source } from "react-map-gl";
+import { v4 as uuidv4 } from "uuid";
 import "mapbox-gl/dist/mapbox-gl.css";
 import axios from "axios";
 
@@ -44,22 +45,29 @@ const AddNote = () => {
     longitude: 84,
   });
   const [mapModal, setMapModal] = useState<Boolean>(false);
+  const [searchBox, setSearchBox] = useState("");
+  const [debouncedTerm, setDebouncedTerm] = useState("");
   // navigator.geolocation.getCurrentPosition((pos)=>{
   //   return pos.coords.latitude
   // }),
+  const [searchList, setSearchList] = useState([]);
+  const SessionToken = uuidv4()
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const form = new FormData();
-    if(image)
-    form.append("image" ,image );
-    form.append("title" , title);
-    form.append("content" , description);
-    form.append("location" , JSON.stringify(location));
-    axios.post("http://localhost:8080/note" , form).then((res)=>{
-      console.log(res);
-    }).catch((err)=>{
-      console.log(err);
-    })
+    if (image) form.append("image", image);
+    form.append("title", title);
+    form.append("content", description);
+    form.append("location", JSON.stringify(location));
+    form.append("authorId", "1");
+    axios
+      .post("http://localhost:8080/note", form)
+      .then((res) => {
+        console.log(res);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
   };
 
   const [viewPort, setViewPort] = useState({
@@ -82,12 +90,78 @@ const AddNote = () => {
 
   const handleSelectLocation = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    setDebouncedTerm("")
+    setSearchBox("")
     setLocation({
       latitude: viewPort.latitude,
       longitude: viewPort.longitude,
     });
     setMapModal(false);
   };
+
+  const locateMarker = async(key : any)=>{
+   
+    setSearchList( searchList.filter((item : any)=>item.mapbox_id===key))
+    const url = `https://api.mapbox.com/search/searchbox/v1/retrieve/${key}?access_token=${import.meta.env.VITE_MAP_KEY}&session_token=${SessionToken}`
+    await axios.get(url).then((res)=>{
+      setViewPort({
+        ...viewPort,
+        latitude: res.data.features[0].geometry.coordinates[1],
+        longitude: res.data.features[0].geometry.coordinates[0],
+      })
+    })
+  }
+
+
+  useEffect(() => {
+    // Set a timer to update debouncedTerm after 1000ms
+    const timer = setTimeout(() => {
+      setDebouncedTerm(searchBox);
+    }, 1000);
+
+    // Cleanup function to clear the timer if searchBox changes
+    return () => clearTimeout(timer);
+  }, [searchBox]);
+
+  const mapListCallback =useCallback(
+    () => {
+      console.log("debouncedTerm", encodeURIComponent(debouncedTerm));
+      let location = "23.59296, 87.2415232";
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          location = `${pos.coords.longitude}, ${pos.coords.latitude}`;
+        });
+      }
+      // console.log(uuidv4());
+      location = encodeURIComponent(location);
+       axios
+      .get(
+        `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(
+          debouncedTerm
+        )}&session_token=${SessionToken}&language=en&limit=5&proximity=${location}&access_token=${
+          import.meta.env.VITE_MAP_KEY
+        }`
+      )
+      .then((res) => setSearchList(res.data.suggestions))
+      .catch((err) => {
+        console.log(err);
+      });
+    
+    },
+    [debouncedTerm],
+  )
+  
+
+  useEffect(() => {
+    if (debouncedTerm) {
+      console.log("debouncedTerm", debouncedTerm);
+      // Call your API here with debouncedTerm
+      mapListCallback()
+      // Example: fetch(`/api/search?q=${debouncedTerm}`)
+
+      
+    }
+  }, [debouncedTerm]);
 
   return (
     <>
@@ -146,7 +220,6 @@ const AddNote = () => {
               }
               className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Choose note Image"
-              
             />
           </div>
           <div className="mb-4">
@@ -170,71 +243,103 @@ const AddNote = () => {
         </form>
       </div>
 
-      {
-        mapModal ? (
-          <div className=" absolute w-full h-full  backdrop-blur-sm top-0 left-0  z-40 flex justify-center items-center rounded-lg">
-        <div className=" h-[90%] w-[90%] bg-white opacity-100 rounded-md">
-          <ReactMapGl
-            {...viewPort}
-            onDblClick={(e) => {
-              console.log(e.lngLat);
-              setViewPort((view) => ({
-                ...view,
-                latitude: e.lngLat.lat,
-                longitude: e.lngLat.lng,
-              }));
-            }}
-            zoom={viewPort.zoom}
-            // onDrag={(e) => {
-            //   console.log(e);
-            //   setViewPort({
-            //     latitude: e.viewState.latitude,
-            //     longitude: e.viewState.longitude,
-            //   });
-            // }}
-            scrollZoom={true}
-            onZoom={(e) => {
-              console.log(e);
-              setViewPort({
-                latitude: e.viewState.latitude,
-                longitude: e.viewState.longitude,
-                zoom: e.viewState.zoom,
-              });
-            }}
-            mapboxAccessToken={import.meta.env.VITE_MAP_KEY}
-            mapStyle="mapbox://styles/mapbox/streets-v9"
-          >
-            <Marker
-              longitude={viewPort.longitude}
-              latitude={viewPort.latitude}
-              anchor="bottom"
-              offset={[0, -10]}
-              draggable
-              onDragEnd={(e) => {
+      {mapModal ? (
+        <div className=" absolute w-full h-full  backdrop-blur-sm top-0 left-0  z-40 flex justify-center items-center rounded-lg"
+        onClick={()=>setMapModal(false)}
+        >
+          <div className=" h-[90%] w-[90%] bg-white opacity-100 rounded-md" onClick={(e)=>{
+            e.stopPropagation()
+          }}>
+            <ReactMapGl
+              {...viewPort}
+              onDblClick={(e) => {
+                console.log(e.lngLat);
+                setViewPort((view) => ({
+                  ...view,
+                  latitude: e.lngLat.lat,
+                  longitude: e.lngLat.lng,
+                }));
+              }}
+              zoom={viewPort.zoom}
+              // onDrag={(e) => {
+              //   console.log(e);
+              //   setViewPort({
+              //     latitude: e.viewState.latitude,
+              //     longitude: e.viewState.longitude,
+              //   });
+              // }}
+              onDrag={(e) => {
+                setViewPort({
+                  latitude: e.viewState.latitude,
+                  longitude: e.viewState.longitude,
+                  zoom: e.viewState.zoom,
+                });
+              }}
+              scrollZoom={true}
+              onZoom={(e) => {
                 console.log(e);
-                setViewPort((view)=>(
-                  {
+                setViewPort({
+                  latitude: e.viewState.latitude,
+                  longitude: e.viewState.longitude,
+                  zoom: e.viewState.zoom,
+                });
+              }}
+              mapboxAccessToken={import.meta.env.VITE_MAP_KEY}
+              mapStyle="mapbox://styles/mapbox/streets-v9"
+            >
+              <Marker
+                longitude={viewPort.longitude}
+                latitude={viewPort.latitude}
+                anchor="bottom"
+                offset={[0, -10]}
+                draggable
+                onDragEnd={(e) => {
+                  console.log(e);
+                  setViewPort((view) => ({
                     ...view,
                     latitude: e.lngLat.lat,
                     longitude: e.lngLat.lng,
                     // zoom: 4,
-                  }
-                ));
-              }}
-            >
-              <MapMarker />
-            </Marker>
+                  }));
+                }}
+              >
+                <MapMarker />
+              </Marker>
+              <div className=" top-5 w-full flex justify-center flex-col items-center  absolute">
+                <input
+                  type="text"
+                  className=" h-12 pl-3 rounded-md w-11/12 border-gray-300 
+             border-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Search for a place or address"
+                  value={searchBox}
+                  onChange={(e) => setSearchBox(e.target.value)}
+                />
+                <div
+                  className={` ${
+                    searchBox ? "" : "hidden"
+                  } max-h-80 w-11/12 p-2 m-2 bg-red-300 rounded-md overflow-y-scroll`}
+                >
+                  {searchList?.map((item: any, index) => (
+                    <div className=" h-11 m-1 bg-blue-300 text-base font-bold cursor-pointer" key={item.mapbox_id} onClick={()=>locateMarker(item.mapbox_id)}>
+                      {item.name}
+                      <div className="text-xs font-normal">
+                        {item.place_formatted}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-            <button className=" p-4 rounded-md bg-red-400 absolute bottom-6 right-6" onClick={handleSelectLocation}>
-              Select Location
-            </button>
-          </ReactMapGl>
-
-          
+              <button
+                className=" p-4 rounded-md bg-red-400 absolute bottom-6 right-6"
+                onClick={handleSelectLocation}
+              >
+                Select Location
+              </button>
+            </ReactMapGl>
+          </div>
         </div>
-      </div>
-        ) : null
-      }
+      ) : null}
     </>
   );
 };

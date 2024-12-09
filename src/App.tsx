@@ -15,7 +15,7 @@ const App = () => {
 
   return (
     <>
-    <div className=" h-dvh w-full ">
+      <div className="h-dvh w-full ">
         <Navbar
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
@@ -78,11 +78,8 @@ const App = () => {
           </div>
         </div>
       </div>
-      <Signin/>
-      <Signup/>   
-
-      
-
+      <Signin />
+      <Signup />
     </>
   );
 };
